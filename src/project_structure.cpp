@@ -8,15 +8,16 @@
 project_structure::project_structure(fs::path project_root, fs::path compilation_database, int notify_fd,
                                      std::map<int, fs::path> directory_watches)
     : m_project_root(project_root),
-      m_compilation_database(compilation_database),
+      m_compilation_database_path(compilation_database),
       m_notify_fd(notify_fd),
       m_directory_watches(directory_watches) {
     populate_relevant_files();
+    update_compilation_database();
 }
 
 project_structure::project_structure(project_structure &&other)
     : m_project_root(std::move(other.m_project_root)),
-      m_compilation_database(std::move(other.m_compilation_database)),
+      m_compilation_database_path(std::move(other.m_compilation_database_path)),
       m_notify_fd(other.m_notify_fd),
       m_directory_watches(std::move(other.m_directory_watches)),
       m_relevant_files(std::move(other.m_relevant_files)) {
@@ -36,7 +37,7 @@ project_structure::~project_structure() {
 void project_structure::swap(project_structure &other) {
     using std::swap;
 
-    swap(m_compilation_database, other.m_compilation_database);
+    swap(m_compilation_database_path, other.m_compilation_database_path);
     swap(m_project_root, other.m_project_root);
     swap(m_directory_watches, other.m_directory_watches);
     swap(m_notify_fd, other.m_notify_fd);
@@ -94,26 +95,13 @@ void project_structure::default_handler(uint32_t mask, const fs::path &affected_
         if (mask & IN_CREATE) {
             std::cout << "Added file " << affected_path.c_str() << std::endl;
             m_relevant_files.emplace(affected_path);
+            update_compilation_database();
         }
 
         if (mask & IN_MOVED_TO) {
             std::cout << "Moved file to " << affected_path.c_str() << std::endl;
-
-            if (affected_path.filename().compare(compilation_database::database_name) == 0) {
-                auto db = compilation_database::read_from(affected_path);
-
-                if (db) {
-                    bool added_files = db->add_missing_files(m_relevant_files);
-
-                    if (added_files) {
-                        auto tmp_file = project_root() / "comp_db.json";
-                        db->write_to(tmp_file);
-                        std::error_code ec;
-                        fs::rename(tmp_file, project_root() / compilation_database::database_name, ec);
-                    }
-                }
-            }
             m_relevant_files.emplace(affected_path);
+            update_compilation_database();
         }
 
         if (mask & IN_MODIFY) {
@@ -128,6 +116,8 @@ void project_structure::default_handler(uint32_t mask, const fs::path &affected_
             if (to_remove != m_relevant_files.cend()) {
                 m_relevant_files.erase(to_remove);
             }
+
+            update_compilation_database();
         }
 
         if (mask & IN_CLOSE_WRITE) {
@@ -206,6 +196,21 @@ void project_structure::populate_relevant_files() {
     for (auto &current_entry : fs::recursive_directory_iterator(m_project_root)) {
         if (is_relevant_file(current_entry)) {
             m_relevant_files.emplace(current_entry.path());
+        }
+    }
+}
+
+void project_structure::update_compilation_database() {
+    m_compilation_database = compilation_database::read_from(m_compilation_database_path);
+
+    if (m_compilation_database) {
+        bool added_files = m_compilation_database->add_missing_files(m_relevant_files);
+
+        if (added_files) {
+            auto tmp_file = project_root() / "comp_db.json";
+            m_compilation_database->write_to(tmp_file);
+            std::error_code ec;
+            fs::rename(tmp_file, project_root() / compilation_database::database_name, ec);
         }
     }
 }

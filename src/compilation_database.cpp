@@ -99,7 +99,7 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
             }
 
             if ((current_flag[0] != '-') || (current_flag.find("-o") == 0) || (current_flag.find("-c") == 0)) {
-                std::cout << "Erasing : " << current_flag << std::endl;
+                // std::cout << "Erasing : " << current_flag << std::endl;
                 return true;
             }
 

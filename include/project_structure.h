@@ -11,6 +11,7 @@
 #include <set>
 
 #include "filesys.h"
+#include "compilation_database.h"
 
 class project_structure final {
    public:
@@ -27,12 +28,13 @@ class project_structure final {
     bool check_for_updates();
 
     const fs::path &project_root() const;
-    const fs::path &compilation_database() const;
+    const fs::path &compilation_database_path() const;
 
    private:
-    project_structure(fs::path project_root, fs::path compilation_database, int notify_fd,
+    project_structure(fs::path project_root, fs::path compilation_database_path, int notify_fd,
                       std::map<int, fs::path> directory_watches);
 
+    void update_compilation_database();
     void populate_relevant_files();
     void inotify_handler();
     void send_event(uint32_t mask, const fs::path &affected_path, int directory_watch);
@@ -40,9 +42,10 @@ class project_structure final {
     bool is_relevant_file(const fs::path &file);
 
     fs::path m_project_root;
-    fs::path m_compilation_database;
+    fs::path m_compilation_database_path;
     std::map<int, fs::path> m_directory_watches;
     // Replace with std::set
     std::set<fs::path> m_relevant_files;
     int m_notify_fd = 0;
+    std::optional<compilation_database> m_compilation_database;
 };

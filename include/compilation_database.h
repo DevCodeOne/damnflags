@@ -16,7 +16,6 @@ class compilation_database {
     void swap(compilation_database &other) noexcept;
 
     bool write_to(const fs::path &compilation_database) const;
-    bool update_from(const fs::path &compilation_database);
 
     bool add_missing_files(const std::set<fs::path> &relevant_files);
 
