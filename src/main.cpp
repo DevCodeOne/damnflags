@@ -1,16 +1,5 @@
-#include <cerrno>
-#include <chrono>
-#include <cstdio>
-#include <cstdlib>
-#include <filesystem>
 #include <iostream>
-#include <map>
-#include <thread>
-#include <type_traits>
-
-#include <sys/inotify.h>
-#include <sys/select.h>
-#include <unistd.h>
+#include <chrono>
 
 #include "project_structure.h"
 

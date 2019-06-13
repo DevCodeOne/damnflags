@@ -58,6 +58,19 @@ bool compilation_database::write_to(const fs::path &path) const {
 #include <iostream>
 
 bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_files) {
+    auto remove_specific_flags = [](const auto &current_flag) -> bool {
+        if (current_flag.size() == 0) {
+            return true;
+        }
+
+        if ((current_flag[0] != '-') || (current_flag.find("-o") == 0) || (current_flag.find("-c") == 0)) {
+            // std::cout << "Erasing : " << current_flag << std::endl;
+            return true;
+        }
+
+        return false;
+    };
+
     if (!m_database.is_array() || m_database.size() < 1) {
         return false;
     }
@@ -71,40 +84,13 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
 
     if (auto command = first_entry.find("command");
         command != first_entry.end() || command->type() != nlohmann::json::value_t::string) {
-        std::string current_part;
-        std::istringstream flag_stream(command->get<std::string>());
-
-        while (std::getline(flag_stream, current_part, ' ')) {
-            auto new_end = std::remove_if(current_part.begin(), current_part.end(),
-                                          [](const auto &current_char) { return std::isspace(current_char); });
-
-            if (new_end != current_part.cend()) {
-                current_part.erase(new_end);
-            }
-
-            if (current_part.size() == 0) {
-                continue;
-            }
-
-            common_command.emplace_back(current_part);
-        }
+        common_command = split_command(command->get<std::string>());
     }
 
     if (common_command.size() > 1) {
         // TODO Filter wrong flags
 
-        auto new_end = std::remove_if(common_command.begin() + 1, common_command.end(), [](const auto &current_flag) {
-            if (current_flag.size() == 0) {
-                return true;
-            }
-
-            if ((current_flag[0] != '-') || (current_flag.find("-o") == 0) || (current_flag.find("-c") == 0)) {
-                // std::cout << "Erasing : " << current_flag << std::endl;
-                return true;
-            }
-
-            return false;
-        });
+        auto new_end = std::remove_if(common_command.begin() + 1, common_command.end(), remove_specific_flags);
 
         if (new_end != common_command.end()) {
             common_command.erase(new_end, common_command.end());
@@ -126,23 +112,40 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
             nlohmann::json new_entry;
 
             new_entry["file"] = current_entry;
+            std::vector<std::string> command_as_list;
+
             if (result != file_map.cend()) {
                 new_entry["directory"] = result->second["directory"];
-                // TODO Filter incorrect flags
-                new_entry["command"] = result->second["command"];
+                auto cpp_command = split_command(result->second["command"].get<std::string>());
+
+                if (cpp_command.size() > 1) {
+                    auto new_end = std::remove_if(cpp_command.begin() + 1, cpp_command.end(), remove_specific_flags);
+
+                    if (new_end != cpp_command.end()) {
+                        cpp_command.erase(new_end, cpp_command.end());
+                    }
+                }
+
+                std::copy(cpp_command.cbegin(), cpp_command.cend(), std::back_inserter(command_as_list));
             } else {
                 std::cout << "Couldn't find a match for header " << current_entry
                           << " ... trying to guess flags from common ones " << std::endl;
-                std::ostringstream command_line;
-                std::copy(common_command.cbegin(), common_command.cend(),
-                          std::ostream_iterator<std::string>(command_line, " "));
 
-                std::cout << "Command line : " << command_line.str() << std::endl;
+                std::copy(common_command.cbegin(), common_command.cend(), std::back_inserter(command_as_list));
 
                 // TODO Add something different here
                 new_entry["directory"] = first_entry["directory"];
-                new_entry["command"] = command_line.str();
             }
+
+            // So that this header file gets treated as source file to get completion
+            command_as_list.emplace_back("-c");
+            command_as_list.emplace_back(current_entry);
+
+            std::ostringstream command_line;
+            std::copy(command_as_list.cbegin(), command_as_list.cend(), std::ostream_iterator<std::string>(command_line, " "));
+
+            std::cout << "Command line : " << command_line.str() << std::endl;
+            new_entry["command"] = command_line.str();
 
             m_database.emplace_back(new_entry);
             added_files = true;

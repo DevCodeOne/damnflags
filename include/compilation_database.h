@@ -3,11 +3,12 @@
 #include <optional>
 #include <set>
 
+#include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "filesys.h"
 
-class compilation_database {
+class compilation_database final {
    public:
     static constexpr inline char database_name[] = "compile_commands.json";
 
