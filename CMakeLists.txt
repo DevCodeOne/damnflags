@@ -8,7 +8,7 @@ set (SOURCE_FILES
     src/main.cpp
     src/utils.cpp
     src/compilation_database.cpp
-    src/project_structure.cpp)
+    src/workspace.cpp)
 
 add_executable(damnflags
     ${SOURCE_FILES})

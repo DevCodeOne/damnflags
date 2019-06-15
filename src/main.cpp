@@ -1,10 +1,10 @@
 #include <iostream>
 #include <chrono>
 
-#include "project_structure.h"
+#include "workspace.h"
 
 int main() {
-    auto structure = project_structure::discover_project(std::filesystem::current_path());
+    auto structure = workspace::discover_project(std::filesystem::current_path());
 
     if (!structure) {
         return EXIT_FAILURE;

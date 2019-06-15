@@ -89,7 +89,6 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
 
     if (common_command.size() > 1) {
         // TODO Filter wrong flags
-
         auto new_end = std::remove_if(common_command.begin() + 1, common_command.end(), remove_specific_flags);
 
         if (new_end != common_command.end()) {
@@ -142,7 +141,8 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
             command_as_list.emplace_back(current_entry);
 
             std::ostringstream command_line;
-            std::copy(command_as_list.cbegin(), command_as_list.cend(), std::ostream_iterator<std::string>(command_line, " "));
+            std::copy(command_as_list.cbegin(), command_as_list.cend(),
+                      std::ostream_iterator<std::string>(command_line, " "));
 
             std::cout << "Command line : " << command_line.str() << std::endl;
             new_entry["command"] = command_line.str();
