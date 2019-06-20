@@ -7,6 +7,8 @@ conan_basic_setup()
 set (SOURCE_FILES
     src/main.cpp
     src/utils.cpp
+    src/logger.cpp
+    src/config.cpp
     src/compilation_database.cpp
     src/workspace.cpp)
 

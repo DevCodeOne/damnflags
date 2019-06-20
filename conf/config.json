@@ -1,0 +1,1 @@
+{ "whitelist_patterns" : [ "src/", "include/" ] }

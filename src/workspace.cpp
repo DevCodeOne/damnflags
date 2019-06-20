@@ -23,20 +23,15 @@ workspace_event &workspace_event::directory_watch(int watch) {
     return *this;
 }
 
-workspace::workspace(fs::path project_root, fs::path compilation_database, int notify_fd,
-                     std::map<int, fs::path> directory_watches)
-    : m_project_root(project_root),
-      m_compilation_database_path(compilation_database),
-      m_notify_fd(notify_fd),
-      m_directory_watches(directory_watches) {
+workspace::workspace(int notify_fd, std::map<int, fs::path> directory_watches, const config &conf)
+    : m_config(conf), m_notify_fd(notify_fd), m_directory_watches(directory_watches) {
     populate_relevant_files();
     update_compilation_database();
     m_event_handlers.emplace_back(default_handler);
 }
 
 workspace::workspace(workspace &&other)
-    : m_project_root(std::move(other.m_project_root)),
-      m_compilation_database_path(std::move(other.m_compilation_database_path)),
+    : m_config(std::move(other.m_config)),
       m_event_handlers(std::move(other.m_event_handlers)),
       m_notify_fd(other.m_notify_fd),
       m_directory_watches(std::move(other.m_directory_watches)),
@@ -57,8 +52,7 @@ workspace::~workspace() {
 void workspace::swap(workspace &other) {
     using std::swap;
 
-    swap(m_project_root, other.m_project_root);
-    swap(m_compilation_database_path, other.m_compilation_database_path);
+    swap(m_config, other.m_config);
     swap(m_event_handlers, other.m_event_handlers);
     swap(m_directory_watches, other.m_directory_watches);
     swap(m_relevant_files, other.m_relevant_files);
@@ -87,6 +81,10 @@ bool workspace::check_for_updates() {
 }
 
 void workspace::default_handler(workspace &workspace_instance, const workspace_event &event) {
+    if (!workspace_instance.is_relevant_file(event.affected_path())) {
+        return;
+    }
+
     if (auto directory_watch = event.directory_watch();
         directory_watch.has_value() && event.event_mask() & workspace_events::deleted_self) {
         auto result = workspace_instance.m_directory_watches.find(*directory_watch);
@@ -100,6 +98,7 @@ void workspace::default_handler(workspace &workspace_instance, const workspace_e
         std::cout << "Removed watch for " << event.affected_path().c_str() << std::endl;
     }
 
+    // TODO add whitelist/blacklist to this maybe
     if (fs::is_directory(event.affected_path())) {
         if (event.event_mask() & workspace_events::created) {
             int directory_watch =
@@ -113,10 +112,6 @@ void workspace::default_handler(workspace &workspace_instance, const workspace_e
             std::cout << "Added directory watch for " << event.affected_path().c_str() << std::endl;
         }
     } else {
-        if (!workspace_instance.is_relevant_file(event.affected_path())) {
-            return;
-        }
-
         if (event.event_mask() & workspace_events::created) {
             std::cout << "Added file " << event.affected_path().c_str() << std::endl;
             workspace_instance.m_relevant_files.emplace(event.affected_path());
@@ -206,23 +201,29 @@ void workspace::send_event(uint32_t mask, const fs::path &affected_path, int dir
     }
 }
 
-// TODO add settings to decide if the file is relevant or not
-bool workspace::is_relevant_file(const fs::path &path) {
-    if (!path.has_extension()) {
-        return false;
-    }
+bool workspace::is_relevant_file(const fs::path &path, const config &conf) {
+    const std::vector<std::regex> &prepared_blacklist_patterns = conf.prepared_blacklist_patterns();
+    const std::vector<std::regex> &prepared_whitelist_patterns = conf.prepared_whitelist_patterns();
+    const auto path_as_string = path.string();
 
-    if (is_source_file(path) || is_header_file(path)) {
-        return true;
-    }
+    const auto match_func = [&path_as_string](auto &current_pattern) {
+        bool result = std::regex_search(path_as_string.cbegin(), path_as_string.cend(), current_pattern);
+        return result;
+    };
 
-    return path.filename() == compilation_database::database_name;
+    // bool relevant = std::none_of(prepared_blacklist_patterns.cbegin(), prepared_blacklist_patterns.cend(),
+    // match_func);
+    bool relevant = std::any_of(prepared_whitelist_patterns.cbegin(), prepared_whitelist_patterns.cend(), match_func);
+
+    return relevant;
 }
 
-const fs::path &workspace::project_root() const { return m_project_root; }
+bool workspace::is_relevant_file(const fs::path &path) const { return is_relevant_file(path, m_config); }
+
+const fs::path workspace::project_root() const { return *m_config.project_root(); }
 
 void workspace::populate_relevant_files() {
-    for (auto &current_entry : fs::recursive_directory_iterator(m_project_root)) {
+    for (auto &current_entry : fs::recursive_directory_iterator(*m_config.project_root())) {
         if (is_relevant_file(current_entry)) {
             m_relevant_files.emplace(current_entry.path());
         }
@@ -230,7 +231,7 @@ void workspace::populate_relevant_files() {
 }
 
 void workspace::update_compilation_database() {
-    m_compilation_database = compilation_database::read_from(m_compilation_database_path);
+    m_compilation_database = compilation_database::read_from(*m_config.compilation_database_path());
 
     if (m_compilation_database) {
         bool added_files = m_compilation_database->add_missing_files(m_relevant_files);
@@ -244,21 +245,41 @@ void workspace::update_compilation_database() {
     }
 }
 
-std::optional<workspace> workspace::discover_project(const fs::path &project_path) {
+std::optional<workspace> workspace::discover_project(const fs::path &project_path, const std::optional<config> &conf) {
     if (!fs::exists(project_path) || !fs::is_directory(project_path)) {
         return std::nullopt;
     }
 
+    std::optional<config> created_config{};
+    if (conf) {
+        created_config = conf.value();
+    }
+
+    if (!created_config) {
+        created_config = config::load_config(project_path / "damnflags_conf.json");
+
+        if (!created_config) {
+            created_config = config::create_empty_config();
+        }
+    }
+
+    if (!created_config) {
+        // Shouldn't happen
+        return std::nullopt;
+    }
+
+    config resulting_config = created_config.value();
+    resulting_config.project_root(project_path);
+
     int notify_fd = inotify_init1(IN_NONBLOCK);
     std::map<int, fs::path> directory_watches;
-    fs::path compilation_database;
 
     if (notify_fd == -1) {
         return std::nullopt;
     }
 
     for (auto &current_entry : fs::recursive_directory_iterator(project_path)) {
-        if (current_entry.is_directory()) {
+        if (current_entry.is_directory() && is_relevant_file(current_entry, resulting_config)) {
             auto absolute_path = fs::absolute(current_entry);
             int watch_directory = inotify_add_watch(notify_fd, absolute_path.c_str(), IN_ALL_EVENTS);
 
@@ -266,12 +287,10 @@ std::optional<workspace> workspace::discover_project(const fs::path &project_pat
                 std::cout << "Adding " << absolute_path.c_str() << " to the list of watched directories" << std::endl;
                 directory_watches.emplace(watch_directory, absolute_path);
             }
-        } else if (current_entry.is_regular_file() &&
-                   current_entry.path().filename() == compilation_database::database_name) {
-            compilation_database = fs::absolute(current_entry.path());
+        } else if (current_entry.is_regular_file() && is_relevant_file(current_entry, resulting_config)) {
+            resulting_config.compilation_database_path(fs::absolute(current_entry.path()));
         }
     }
 
-    return workspace(std::move(project_path), std::move(compilation_database), std::move(notify_fd),
-                     std::move(directory_watches));
+    return workspace(std::move(notify_fd), std::move(directory_watches), resulting_config);
 }

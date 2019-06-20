@@ -15,6 +15,7 @@
 #include <set>
 
 #include "compilation_database.h"
+#include "config.h"
 #include "filesys.h"
 
 enum struct workspace_events : uint32_t {
@@ -34,7 +35,7 @@ enum struct workspace_events : uint32_t {
 
 bool operator&(const workspace_events &lhs, const workspace_events &rhs);
 
-class workspace_event {
+class workspace_event final {
     public:
         workspace_event(workspace_events event_mask, const fs::path &path);
 
@@ -57,7 +58,8 @@ class workspace final {
    public:
     using handler_type = std::function<void(workspace &workspace_instance, const workspace_event &event)>;
 
-    static std::optional<workspace> discover_project(const fs::path &project_path);
+    static std::optional<workspace> discover_project(const fs::path &project_path, const std::optional<config> &conf = {});
+    static bool is_relevant_file(const fs::path &file, const config &conf);
     workspace(const workspace &other) = delete;
     workspace(workspace &&other);
     ~workspace();
@@ -69,22 +71,21 @@ class workspace final {
 
     bool check_for_updates();
 
-    const fs::path &project_root() const;
-    const fs::path &compilation_database_path() const;
+    const fs::path project_root() const;
+    const fs::path compilation_database_path() const;
 
    private:
-    workspace(fs::path project_root, fs::path compilation_database_path, int notify_fd,
-              std::map<int, fs::path> directory_watches);
+    workspace(int notify_fd,
+              std::map<int, fs::path> directory_watches, const config &conf);
 
     void update_compilation_database();
     void populate_relevant_files();
     void inotify_handler();
     void send_event(uint32_t mask, const fs::path &affected_path, int directory_watch);
     static void default_handler(workspace &workspace_instance, const workspace_event &event);
-    bool is_relevant_file(const fs::path &file);
+    bool is_relevant_file(const fs::path &file) const;
 
-    fs::path m_project_root;
-    fs::path m_compilation_database_path;
+    config m_config;
     std::vector<handler_type> m_event_handlers;
     std::map<int, fs::path> m_directory_watches;
     std::set<fs::path> m_relevant_files;
