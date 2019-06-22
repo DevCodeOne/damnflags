@@ -1,11 +1,11 @@
 #include <fstream>
-#include <iostream>
 
 #include "config.h"
 
+// TODO add real config
 std::string config::default_config() { return "{}"; }
 
-std::string config::prepare_pattern(const std::string &pattern) {
+std::string config::load_variables(const std::string &pattern) const {
     static constexpr char project_root_pattern[] = "${project_root}";
     std::string pattern_result(pattern);
 
@@ -25,8 +25,6 @@ std::string config::prepare_pattern(const std::string &pattern) {
     std::string_view root_path_view(root_path->c_str());
     pattern_result.replace(result, result + sizeof(project_root_pattern) - 1, root_path_view.cbegin(),
                            root_path_view.cend());
-    std::cout << pattern_result << std::endl;
-
     return pattern_result;
 }
 
@@ -75,12 +73,12 @@ void config::update_patterns() {
     try {
         auto blpatterns = blacklist_patterns();
         for (const auto &current_entry : blpatterns) {
-            m_prepared_blacklist.emplace_back(prepare_pattern(current_entry), std::regex::extended);
+            m_prepared_blacklist.emplace_back(load_variables(current_entry), std::regex::ECMAScript);
         }
 
         auto wlpatterns = whitelist_patterns();
         for (const auto &current_entry : wlpatterns) {
-            m_prepared_whitelist.emplace_back(prepare_pattern(current_entry), std::regex::extended);
+            m_prepared_whitelist.emplace_back(load_variables(current_entry), std::regex::ECMAScript);
         }
     } catch (std::regex_error e) {
         // TODO improve error handling here and log errors
@@ -97,6 +95,11 @@ config &config::project_root(const fs::path &path) {
 
 config &config::compilation_database_path(const fs::path &path) {
     m_conf[compilation_database_path_key] = path.c_str();
+    return *this;
+}
+
+config &config::get_flags_from(const std::string &value) {
+    m_conf[get_flags_from_key] = value;
     return *this;
 }
 
@@ -139,6 +142,20 @@ std::optional<fs::path> config::compilation_database_path() const {
     }
 
     return fs::path(result.value().get<std::string>());
+}
+
+std::optional<std::string> config::get_flags_from() const {
+    auto result = m_conf.find(get_flags_from_key);
+
+    if (result == m_conf.cend()) {
+        return std::nullopt;
+    }
+
+    if (!result.value().is_string()) {
+        return std::nullopt;
+    }
+
+    return load_variables(result.value().get<std::string>());
 }
 
 const std::vector<std::regex> &config::prepared_blacklist_patterns() const { return m_prepared_blacklist; }

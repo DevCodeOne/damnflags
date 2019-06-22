@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
 #include "compilation_database.h"
+#include "config.h"
 #include "utils.h"
 
 std::optional<compilation_database> compilation_database::read_from(const fs::path &path) {
@@ -24,7 +26,7 @@ std::optional<compilation_database> compilation_database::read_from(const fs::pa
 
     auto result = nlohmann::json::parse(read_compilation_database, nullptr, false);
 
-    if (result == nlohmann::json::value_t::discarded) {
+    if (result.is_discarded()) {
         return std::nullopt;
     }
 
@@ -55,9 +57,7 @@ bool compilation_database::write_to(const fs::path &path) const {
     return true;
 }
 
-#include <iostream>
-
-bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_files) {
+bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_files, const config &conf) {
     auto remove_specific_flags = [](const auto &current_flag) -> bool {
         if (current_flag.size() == 0) {
             return true;
@@ -98,58 +98,78 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
 
     for (const auto &current_entry : m_database) {
         if (auto filename = current_entry.find("file"); filename != current_entry.end()) {
-            auto filename_wo_extension = fs::path(filename->get<std::string>()).filename().replace_extension();
-            file_map[filename_wo_extension] = current_entry;
+            auto path_wo_extension = fs::path(filename->get<std::string>()).replace_extension();
+            file_map[path_wo_extension] = current_entry;
         }
     }
 
     for (const auto &current_entry : relevant_files) {
-        if (is_header_file(current_entry)) {
-            auto filename_wo_extension = fs::path(current_entry).filename().replace_extension();
-            auto result = file_map.find(filename_wo_extension);
+        if (!is_header_file(current_entry)) {
+            continue;
+        }
 
-            nlohmann::json new_entry;
+        // TODO: For now search for file with the same filename,
+        // later on look for files which include this one and search for the smallest common subset of flags
+        auto filename_wo_extension = fs::path(current_entry).filename().replace_extension();
+        auto result =
+            std::find_if(file_map.cbegin(), file_map.cend(), [&filename_wo_extension](const auto &current_entry) {
+                return current_entry.first.filename() == filename_wo_extension;
+            });
 
-            new_entry["file"] = current_entry;
-            std::vector<std::string> command_as_list;
+        if (result != file_map.cend()) {
+            std::cout << "Getting flags from matching source file : " << result->second["file"].get<std::string>()
+                      << std::endl;
+        }
 
+        if (auto get_flags_from = conf.get_flags_from(); get_flags_from && result == file_map.cend()) {
+            auto new_try = fs::path(*get_flags_from).replace_extension();
+            result = file_map.find(new_try);
             if (result != file_map.cend()) {
-                new_entry["directory"] = result->second["directory"];
-                auto cpp_command = split_command(result->second["command"].get<std::string>());
+                std::cout << "Getting flags from file :" << *get_flags_from << std::endl;
+            }
+        }
 
-                if (cpp_command.size() > 1) {
-                    auto new_end = std::remove_if(cpp_command.begin() + 1, cpp_command.end(), remove_specific_flags);
+        nlohmann::json new_entry;
 
-                    if (new_end != cpp_command.end()) {
-                        cpp_command.erase(new_end, cpp_command.end());
-                    }
+        new_entry["file"] = current_entry;
+        std::vector<std::string> command_as_list;
+
+        if (result != file_map.cend()) {
+            new_entry["directory"] = result->second["directory"];
+            auto cpp_command = split_command(result->second["command"].get<std::string>());
+
+            if (cpp_command.size() > 1) {
+                auto new_end = std::remove_if(cpp_command.begin() + 1, cpp_command.end(), remove_specific_flags);
+
+                if (new_end != cpp_command.end()) {
+                    cpp_command.erase(new_end, cpp_command.end());
                 }
-
-                std::copy(cpp_command.cbegin(), cpp_command.cend(), std::back_inserter(command_as_list));
-            } else {
-                std::cout << "Couldn't find a match for header " << current_entry
-                          << " ... trying to guess flags from common ones " << std::endl;
-
-                std::copy(common_command.cbegin(), common_command.cend(), std::back_inserter(command_as_list));
-
-                // TODO Add something different here
-                new_entry["directory"] = first_entry["directory"];
             }
 
-            // So that this header file gets treated as source file to get completion
-            command_as_list.emplace_back("-c");
-            command_as_list.emplace_back(current_entry);
+            std::copy(cpp_command.cbegin(), cpp_command.cend(), std::back_inserter(command_as_list));
+        } else {
+            std::cout << "Couldn't find a match for header " << current_entry << " ... falling back to common flags"
+                      << std::endl;
 
-            std::ostringstream command_line;
-            std::copy(command_as_list.cbegin(), command_as_list.cend(),
-                      std::ostream_iterator<std::string>(command_line, " "));
+            std::copy(common_command.cbegin(), common_command.cend(), std::back_inserter(command_as_list));
 
-            std::cout << "Command line : " << command_line.str() << std::endl;
-            new_entry["command"] = command_line.str();
-
-            m_database.emplace_back(new_entry);
-            added_files = true;
+            // TODO Add something different here
+            new_entry["directory"] = first_entry["directory"];
         }
+
+        // So that this header file gets treated as source file to get completion
+        command_as_list.emplace_back("-c");
+        command_as_list.emplace_back(current_entry);
+
+        std::ostringstream command_line;
+        std::copy(command_as_list.cbegin(), command_as_list.cend(),
+                  std::ostream_iterator<std::string>(command_line, " "));
+
+        std::cout << "Command line : " << command_line.str() << std::endl;
+        new_entry["command"] = command_line.str();
+
+        m_database.emplace_back(new_entry);
+        added_files = true;
     }
 
     return added_files;

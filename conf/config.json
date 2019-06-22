@@ -1,1 +1,4 @@
-{ "whitelist_patterns" : [ "src/", "include/" ] }
+{
+    "get_flags_from" : "${project_root}/src/main.cpp",
+    "whitelist_patterns" : ["${project_root}/src", "${project_root}/include"]
+}

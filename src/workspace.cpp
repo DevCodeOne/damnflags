@@ -112,6 +112,7 @@ void workspace::default_handler(workspace &workspace_instance, const workspace_e
             std::cout << "Added directory watch for " << event.affected_path().c_str() << std::endl;
         }
     } else {
+        // TODO only watch for source or header files
         if (event.event_mask() & workspace_events::created) {
             std::cout << "Added file " << event.affected_path().c_str() << std::endl;
             workspace_instance.m_relevant_files.emplace(event.affected_path());
@@ -211,6 +212,7 @@ bool workspace::is_relevant_file(const fs::path &path, const config &conf) {
         return result;
     };
 
+    // TODO: add back blacklist functionality
     // bool relevant = std::none_of(prepared_blacklist_patterns.cbegin(), prepared_blacklist_patterns.cend(),
     // match_func);
     bool relevant = std::any_of(prepared_whitelist_patterns.cbegin(), prepared_whitelist_patterns.cend(), match_func);
@@ -233,16 +235,22 @@ void workspace::populate_relevant_files() {
 void workspace::update_compilation_database() {
     m_compilation_database = compilation_database::read_from(*m_config.compilation_database_path());
 
-    if (m_compilation_database) {
-        bool added_files = m_compilation_database->add_missing_files(m_relevant_files);
-
-        if (added_files) {
-            auto tmp_file = project_root() / "comp_db.json";
-            m_compilation_database->write_to(tmp_file);
-            std::error_code ec;
-            fs::rename(tmp_file, project_root() / compilation_database::database_name, ec);
-        }
+    if (!m_compilation_database) {
+        std::cout << "Couldn't read database" << std::endl;
+        return;
     }
+
+    bool added_files = m_compilation_database->add_missing_files(m_relevant_files, m_config);
+
+    if (!added_files) {
+        std::cout << "Compilation database is already up to date" << std::endl;
+        return;
+    }
+
+    auto tmp_file = project_root() / "comp_db.json";
+    m_compilation_database->write_to(tmp_file);
+    std::error_code ec;
+    fs::rename(tmp_file, project_root() / compilation_database::database_name, ec);
 }
 
 std::optional<workspace> workspace::discover_project(const fs::path &project_path, const std::optional<config> &conf) {
@@ -288,7 +296,17 @@ std::optional<workspace> workspace::discover_project(const fs::path &project_pat
                 directory_watches.emplace(watch_directory, absolute_path);
             }
         } else if (current_entry.is_regular_file() && is_relevant_file(current_entry, resulting_config)) {
-            resulting_config.compilation_database_path(fs::absolute(current_entry.path()));
+            if (current_entry.path().filename() == compilation_database::database_name) {
+                resulting_config.compilation_database_path(fs::absolute(current_entry.path()));
+                auto absolute_path = fs::absolute(current_entry);
+                int watch_compilation_database = inotify_add_watch(notify_fd, absolute_path.c_str(), IN_ALL_EVENTS);
+
+                if (watch_compilation_database != -1) {
+                    std::cout << "Adding compilation_database : " << absolute_path.c_str()
+                              << " to the list of watched things" << std::endl;
+                    directory_watches.emplace(watch_compilation_database, absolute_path);
+                }
+            }
         }
     }
 
