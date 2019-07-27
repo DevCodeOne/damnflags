@@ -74,10 +74,10 @@ bool workspace::check_for_updates() {
 
     if (FD_ISSET(m_notify_fd, &descriptor_set)) {
         inotify_handler();
-        return true;
     }
 
-    return false;
+    update_compilation_database();
+    return true;
 }
 
 void workspace::default_handler(workspace &workspace_instance, const workspace_event &event) {
@@ -115,14 +115,20 @@ void workspace::default_handler(workspace &workspace_instance, const workspace_e
         // TODO only watch for source or header files
         if (event.event_mask() & workspace_events::created) {
             std::cout << "Added file " << event.affected_path().c_str() << std::endl;
-            workspace_instance.m_relevant_files.emplace(event.affected_path());
-            workspace_instance.update_compilation_database();
+            auto updated = workspace_instance.m_relevant_files.emplace(event.affected_path());
+
+            if (updated.second) {
+                workspace_instance.compilation_database_is_dirty();
+            }
         }
 
         if (event.event_mask() & workspace_events::moved_to) {
             std::cout << "Moved file to " << event.affected_path().c_str() << std::endl;
-            workspace_instance.m_relevant_files.emplace(event.affected_path());
-            workspace_instance.update_compilation_database();
+            auto updated = workspace_instance.m_relevant_files.emplace(event.affected_path());
+
+            if (updated.second) {
+                workspace_instance.compilation_database_is_dirty();
+            }
         }
 
         if (event.event_mask() & workspace_events::modified) {
@@ -137,9 +143,8 @@ void workspace::default_handler(workspace &workspace_instance, const workspace_e
 
             if (to_remove != workspace_instance.m_relevant_files.cend()) {
                 workspace_instance.m_relevant_files.erase(to_remove);
+                workspace_instance.compilation_database_is_dirty();
             }
-
-            workspace_instance.update_compilation_database();
         }
 
         if (event.event_mask() & workspace_events::closed_write) {
@@ -212,6 +217,15 @@ bool workspace::is_relevant_file(const fs::path &path, const config &conf) {
         return result;
     };
 
+    if (fs::is_regular_file(path) && !path.has_extension()) {
+        return false;
+    }
+
+    if (fs::is_regular_file(path) && path.has_extension() && path.extension().string().back() == '~') {
+        std::cout << path << std::endl;
+        return false;
+    }
+
     // TODO: add back blacklist functionality
     // bool relevant = std::none_of(prepared_blacklist_patterns.cbegin(), prepared_blacklist_patterns.cend(),
     // match_func);
@@ -232,7 +246,14 @@ void workspace::populate_relevant_files() {
     }
 }
 
+void workspace::compilation_database_is_dirty() { m_dirty_compilation_database = true; }
+
 void workspace::update_compilation_database() {
+    std::cout << __PRETTY_FUNCTION__ << std::endl;
+    if (!m_dirty_compilation_database) {
+        return;
+    }
+
     m_compilation_database = compilation_database::read_from(*m_config.compilation_database_path());
 
     if (!m_compilation_database) {
@@ -251,6 +272,7 @@ void workspace::update_compilation_database() {
     m_compilation_database->write_to(tmp_file);
     std::error_code ec;
     fs::rename(tmp_file, project_root() / compilation_database::database_name, ec);
+    m_dirty_compilation_database = false;
 }
 
 std::optional<workspace> workspace::discover_project(const fs::path &project_path, const std::optional<config> &conf) {

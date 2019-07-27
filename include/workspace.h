@@ -68,6 +68,7 @@ class workspace final {
     workspace &operator=(workspace &&other) = default;
 
     void swap(workspace &other);
+    void compilation_database_is_dirty();
 
     bool check_for_updates();
 
@@ -90,5 +91,6 @@ class workspace final {
     std::map<int, fs::path> m_directory_watches;
     std::set<fs::path> m_relevant_files;
     int m_notify_fd = 0;
+    bool m_dirty_compilation_database = true;
     std::optional<compilation_database> m_compilation_database;
 };

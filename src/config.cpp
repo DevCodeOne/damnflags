@@ -25,6 +25,7 @@ std::string config::load_variables(const std::string &pattern) const {
     std::string_view root_path_view(root_path->c_str());
     pattern_result.replace(result, result + sizeof(project_root_pattern) - 1, root_path_view.cbegin(),
                            root_path_view.cend());
+
     return pattern_result;
 }
 

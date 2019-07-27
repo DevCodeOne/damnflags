@@ -165,7 +165,8 @@ bool compilation_database::add_missing_files(const std::set<fs::path> &relevant_
         std::copy(command_as_list.cbegin(), command_as_list.cend(),
                   std::ostream_iterator<std::string>(command_line, " "));
 
-        std::cout << "Command line : " << command_line.str() << std::endl;
+        // TODO: add log
+        // std::cout << "Command line : " << command_line.str() << std::endl;
         new_entry["command"] = command_line.str();
 
         m_database.emplace_back(new_entry);
