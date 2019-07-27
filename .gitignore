@@ -1,0 +1,9 @@
+# Ignore everything
+/*
+
+# Explicitly add everything which is really needed
+!src
+!include
+!conf
+!conanfile.py
+!.gitignore
