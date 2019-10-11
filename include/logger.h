@@ -4,6 +4,8 @@
 #include <mutex>
 #include <optional>
 
+#include "spdlog/spdlog.h"
+
 #include "filesys.h"
 
 class logger_configuration final {
@@ -25,8 +27,14 @@ class logger final {
    public:
     static std::shared_ptr<logger> instance(std::optional<logger_configuration> config = {});
 
+    void log_info(const std::string &info);
+    void log_warning(const std::string &warn);
+    void log_error(const std::string &error);
+
    private:
     logger(const logger_configuration &configuration);
+
+    std::shared_ptr<spdlog::logger> m_logger_instance = nullptr;
 
     static inline std::shared_ptr<logger> _instance;
     static inline std::mutex _instance_mutex;

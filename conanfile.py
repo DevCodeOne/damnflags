@@ -5,7 +5,7 @@ class DamnflagsConan(ConanFile):
     name = "damnflags"
     version = "0.1"
     license = "GPLv3"
-    author = "DevCode"
+    author = "DevCodeOne"
     url = ""
     description = "<Description of Damnflags here>"
     topics = ("<Put some tag here>", "<here>", "<and here>")

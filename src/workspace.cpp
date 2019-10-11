@@ -1,7 +1,9 @@
-#include <iostream>
 #include <utility>
+// TODO: remove later
+#include <iostream>
 
 #include "compilation_database.h"
+#include "logger.h"
 #include "utils.h"
 #include "workspace.h"
 
@@ -249,22 +251,28 @@ void workspace::populate_relevant_files() {
 void workspace::compilation_database_is_dirty() { m_dirty_compilation_database = true; }
 
 void workspace::update_compilation_database() {
+    auto logger_instance = logger::instance();
     std::cout << __PRETTY_FUNCTION__ << std::endl;
     if (!m_dirty_compilation_database) {
+        return;
+    }
+
+    if (!m_config.compilation_database_path()) {
+        logger_instance->log_error("Can't open compilation database, there's no valid path");
         return;
     }
 
     m_compilation_database = compilation_database::read_from(*m_config.compilation_database_path());
 
     if (!m_compilation_database) {
-        std::cout << "Couldn't read database" << std::endl;
+        logger_instance->log_error("Couldn't read database");
         return;
     }
 
     bool added_files = m_compilation_database->add_missing_files(m_relevant_files, m_config);
 
     if (!added_files) {
-        std::cout << "Compilation database is already up to date" << std::endl;
+        logger_instance->log_error("Compilation database is already up to date");
         return;
     }
 

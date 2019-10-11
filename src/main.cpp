@@ -34,15 +34,18 @@ int main(int argc, char *argv[]) {
     logger_configuration log_config;
     log_config.should_log_to_console(log_to_console).log_path(log_path);
 
-    auto logger = logger::instance(log_config);
-
+    auto logger = logger::instance(log_config)->instance();
     auto config = config::load_config(config_path);
 
     auto config_project_root = config->project_root();
+
     auto structure = workspace::discover_project(
         config_project_root ? *config_project_root : std::filesystem::current_path(), config);
 
+    logger->log_info(*config_project_root);
+
     if (!structure) {
+        logger->log_error("Couldn't start damnflags in the project directory");
         return EXIT_FAILURE;
     }
 

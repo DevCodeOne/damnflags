@@ -7,9 +7,15 @@
 
 #include "compilation_database.h"
 #include "config.h"
+#include "logger.h"
 #include "utils.h"
 
 std::optional<compilation_database> compilation_database::read_from(const fs::path &path) {
+    // For some reason it fails to check if "" exists
+    if (path == "") {
+        return std::nullopt;
+    }
+
     if (!fs::exists(path) && fs::is_regular_file(path)) {
         return std::nullopt;
     }
@@ -20,17 +26,25 @@ std::optional<compilation_database> compilation_database::read_from(const fs::pa
         return std::nullopt;
     }
 
-    std::string read_compilation_database{std::istreambuf_iterator<char>(compilation_database_in),
-                                          std::istreambuf_iterator<char>()};
-    compilation_database_in.close();
+    try {
+        std::string read_compilation_database{std::istreambuf_iterator<char>(compilation_database_in),
+                                              std::istreambuf_iterator<char>()};
+        compilation_database_in.close();
 
-    auto result = nlohmann::json::parse(read_compilation_database, nullptr, false);
+        auto result = nlohmann::json::parse(read_compilation_database, nullptr, false);
 
-    if (result.is_discarded()) {
-        return std::nullopt;
+        if (result.is_discarded()) {
+            return std::nullopt;
+        }
+
+        return compilation_database{result};
+    } catch (...) {
+        std::string error_message("An error occured when trying to read from the file");
+        error_message += path;
+        logger::instance()->log_error(error_message);
     }
 
-    return compilation_database{result};
+    return std::nullopt;
 }
 
 compilation_database::compilation_database(nlohmann::json database) : m_database(std::move(database)) {}

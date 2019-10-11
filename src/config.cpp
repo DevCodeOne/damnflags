@@ -1,35 +1,28 @@
 #include <fstream>
 
 #include "config.h"
+#include "utils.h"
 
-// TODO add real config
-std::string config::default_config() { return "{}"; }
+std::string config::default_config() { return _default_config; }
 
 std::string config::load_variables(const std::string &pattern) const {
     static constexpr char project_root_pattern[] = "${project_root}";
+    static constexpr char working_dir_pattern[] = "${working_dir}";
     std::string pattern_result(pattern);
 
-    auto result = std::search(pattern_result.begin(), pattern_result.end(), std::cbegin(project_root_pattern),
-                              std::cend(project_root_pattern) - 1);
-
-    if (result == pattern_result.end()) {
-        return pattern_result;
-    }
-
     auto root_path = project_root();
+    auto working_dir = fs::current_path();
 
-    if (!root_path) {
-        return pattern_result;
+    if (root_path) {
+        replace_pattern_with(pattern_result, project_root_pattern, root_path->c_str());
     }
 
-    std::string_view root_path_view(root_path->c_str());
-    pattern_result.replace(result, result + sizeof(project_root_pattern) - 1, root_path_view.cbegin(),
-                           root_path_view.cend());
+    replace_pattern_with(pattern_result, working_dir_pattern, working_dir.c_str());
 
     return pattern_result;
 }
 
-// TODO actually implement this method with a json structure checker
+// TODO: actually implement this method with a json structure checker
 bool config::is_config_valid(const nlohmann::json &conf) { return true; }
 
 config config::create_empty_config() { return config{nlohmann::json{}}; }
@@ -71,6 +64,8 @@ void config::update_patterns() {
     m_prepared_blacklist.clear();
     m_prepared_whitelist.clear();
 
+    m_conf[project_root_key] = load_variables(m_conf[project_root_key]);
+
     try {
         auto blpatterns = blacklist_patterns();
         for (const auto &current_entry : blpatterns) {
@@ -82,7 +77,7 @@ void config::update_patterns() {
             m_prepared_whitelist.emplace_back(load_variables(current_entry), std::regex::ECMAScript);
         }
     } catch (std::regex_error e) {
-        // TODO improve error handling here and log errors
+        // TODO: improve error handling here and log errors
         m_prepared_blacklist.clear();
         m_prepared_whitelist.clear();
     }
@@ -116,15 +111,11 @@ config &config::blacklist_regex(const std::vector<std::string> &patterns) {
     return *this;
 }
 
-// TODO remove code duplication
+// TODO: remove code duplication
 std::optional<fs::path> config::project_root() const {
     auto result = m_conf.find(project_root_key);
 
-    if (result == m_conf.cend()) {
-        return std::nullopt;
-    }
-
-    if (!result.value().is_string()) {
+    if (result == m_conf.cend() || !result.value().is_string()) {
         return std::nullopt;
     }
 
@@ -134,11 +125,7 @@ std::optional<fs::path> config::project_root() const {
 std::optional<fs::path> config::compilation_database_path() const {
     auto result = m_conf.find(compilation_database_path_key);
 
-    if (result == m_conf.cend()) {
-        return std::nullopt;
-    }
-
-    if (!result.value().is_string()) {
+    if (result == m_conf.cend() || !result.value().is_string()) {
         return std::nullopt;
     }
 
@@ -148,11 +135,7 @@ std::optional<fs::path> config::compilation_database_path() const {
 std::optional<std::string> config::get_flags_from() const {
     auto result = m_conf.find(get_flags_from_key);
 
-    if (result == m_conf.cend()) {
-        return std::nullopt;
-    }
-
-    if (!result.value().is_string()) {
+    if (result == m_conf.cend() || !result.value().is_string()) {
         return std::nullopt;
     }
 

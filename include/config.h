@@ -9,7 +9,7 @@
 
 #include "filesys.h"
 
-// TODO do proper caching instead of reading every time the json
+// TODO do proper caching instead of reading the json every time
 class config {
    public:
     static std::optional<config> load_config(const fs::path &config_path);
@@ -47,4 +47,12 @@ class config {
     nlohmann::json m_conf{};
     std::vector<std::regex> m_prepared_blacklist{};
     std::vector<std::regex> m_prepared_whitelist{};
+
+    static inline constexpr char _default_config[] = R"(
+    {
+        "project_root": "${working_dir}",
+        "get_flags_from" : "${project_root}/src/main.cpp",
+        "whitelist_patterns" : ["${project_root}/src", "${project_root}/include", "${project_root}/build/compile_commands.json"]
+    }
+    )";
 };

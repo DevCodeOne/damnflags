@@ -1,4 +1,5 @@
 {
+    "project_root" : "${working_dir}",
     "get_flags_from" : "${project_root}/src/main.cpp",
-    "whitelist_patterns" : ["${project_root}/src", "${project_root}/include"]
+    "whitelist_patterns" : ["${project_root}/src", "${project_root}/include", "${project_root}/build/compile_commands.json"]
 }
